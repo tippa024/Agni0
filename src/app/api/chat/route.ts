@@ -24,7 +24,7 @@ const client = new OpenAI({
   },
 });
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   if (!process.env.DEEPSEEK_API_KEY) {
