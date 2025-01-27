@@ -40,15 +40,27 @@ export async function POST(req: Request) {
   try {
     const { messages, reasoningEnabled } = await req.json();
 
-    // Create chat completion
-    const response = await client.chat.completions.create({
+    console.log("[DeepSeek] Reasoning enabled:", reasoningEnabled);
+
+    // Create chat completion with proper reasoning parameters
+    const response = (await client.chat.completions.create({
       model: reasoningEnabled ? "deepseek-reasoner" : "deepseek-chat",
       messages: messages.map((msg: any) => ({
         role: msg.role,
         content: msg.content,
       })),
       stream: true,
-    });
+      ...(reasoningEnabled && {
+        reasoning: true,
+        show_reasoning: true,
+        temperature: 0.7,
+      }),
+    })) as any;
+
+    console.log(
+      "[DeepSeek] Using model:",
+      reasoningEnabled ? "deepseek-reasoner" : "deepseek-chat"
+    );
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -56,15 +68,22 @@ export async function POST(req: Request) {
         let reasoningContent = "";
         let content = "";
         let isFirstContent = true;
+        let isFirstReasoning = true;
 
         try {
           for await (const chunk of response) {
-            const delta = chunk.choices[0]?.delta as DeepSeekDelta;
+            const delta = chunk.choices?.[0]?.delta as DeepSeekDelta;
+            if (!delta) continue;
 
-            if (delta?.reasoning_content) {
+            if (delta.reasoning_content && reasoningEnabled) {
+              console.log("[DeepSeek] Working...");
+              if (isFirstReasoning) {
+                controller.enqueue(encoder.encode("Reasoning: "));
+                isFirstReasoning = false;
+              }
               reasoningContent += delta.reasoning_content;
               controller.enqueue(encoder.encode(delta.reasoning_content));
-            } else if (delta?.content) {
+            } else if (delta.content) {
               if (isFirstContent) {
                 controller.enqueue(encoder.encode("\n\nAnswer: "));
                 isFirstContent = false;
@@ -73,9 +92,18 @@ export async function POST(req: Request) {
               controller.enqueue(encoder.encode(delta.content));
             }
           }
+
+          if (reasoningEnabled) {
+            console.log(
+              "[DeepSeek] Final reasoning content:",
+              reasoningContent
+            );
+            console.log("[DeepSeek] Final answer content:", content);
+          }
+
           controller.close();
         } catch (error) {
-          console.error("Stream error:", error);
+          console.error("[DeepSeek] Stream error:", error);
           controller.error(error);
         }
       },

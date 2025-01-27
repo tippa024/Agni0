@@ -17,6 +17,7 @@ import 'katex/dist/katex.min.css';
 import DOMPurify from 'dompurify';
 import { useTavilySearch } from './lib/hooks/useTavilySearch';
 import { useTavilyExtract } from './lib/hooks/useTavilyExtract';
+import { useOpenPerplexSearch } from './lib/hooks/useOpenPerplexSearch';
 import { MessageBubble } from './components/MessageBubble';
 import { Switch } from './components/ui/switch';
 import { Label } from './components/ui/label';
@@ -26,23 +27,8 @@ const sourceSerif4 = Source_Serif_4({
   weight: ['400', '600', '700'],
 });
 
-// Add copyToClipboard to window object for onclick handlers
-declare global {
-  interface Window {
-    copyToClipboard: (text: string) => Promise<void>;
-  }
-}
 
-if (typeof window !== 'undefined') {
-  window.copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      // You could add a visual feedback here if needed
-    } catch (err) {
-      console.error('Failed to copy text:', err);
-    }
-  };
-}
+
 
 // Types for different output formats
 type OutputType = 'code' | 'writing' | 'equation' | 'markdown';
@@ -330,8 +316,10 @@ export default function Home() {
   const [currentSearchResults, setCurrentSearchResults] = useState<SearchResult[]>([]);
   const [searchEnabled, setSearchEnabled] = useState(false);
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
+  const [searchProvider, setSearchProvider] = useState<'tavily' | 'openperplex'>('tavily');
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([systemMessage]);
-  const { search } = useTavilySearch();
+  const { search: tavilySearch } = useTavilySearch();
+  const { search: openPerplexSearch } = useOpenPerplexSearch();
   const { extract } = useTavilyExtract();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -347,6 +335,7 @@ export default function Home() {
     try {
       let contextualizedInput = userMessage;
       let results: SearchResult[] = [];
+      let extractedContent = '';
 
       if (searchEnabled) {
         const response = await fetch('/api/chat', {
@@ -367,7 +356,8 @@ Return ONLY a valid JSON object with the following properties:
 1. "refinedQuery" (string):
    - A clear and focused search query, optimized for relevance.
 
-2. "searchOptions" (object) with ONLY these valid Tavily parameters:
+2. "searchOptions" (object) with ${searchProvider === 'tavily' ? 'ONLY these valid Tavily parameters:' : 'ONLY these valid OpenPerplex parameters:'}
+   ${searchProvider === 'tavily' ? `
    - "searchDepth": "basic" or "advanced" (default "basic")
    - "topic": "general" or "news" (default "general")
    - "days": number (1-30, only used with topic:"news", default 3)
@@ -377,81 +367,20 @@ Return ONLY a valid JSON object with the following properties:
    - "includeImageDescriptions": boolean
    - "includeAnswer": boolean | "basic" | "advanced"
    - "includeRawContent": boolean
-   - "includeDomains": array of domains to include
+   - "includeDomains": array of domains to include` : `
+   - "maxResults": number between 1-10 (default 5)`}
 
-Always include "twitter.com" and "reddit.com" in "includeDomains" to ensure searches cover those platforms.
+${searchProvider === 'tavily' ? `Always include "twitter.com" and "reddit.com" in "includeDomains" to ensure searches cover those platforms.` : ''}
 
 Additional guidelines based on user intent:
+${searchProvider === 'tavily' ? `
 - If the user seeks a single fact or definition, keep the query concise and consider providing a more precise or "advanced" answer in "includeAnswer".
 - If the user wants the latest news on a topic, set "topic" to "news" and consider increasing "days" and/or broadening the "searchDepth" to "advanced".
 - For broad or exploratory questions, lean toward "advanced" search depth and possibly use a wider "timeRange".
 - Tailor "maxResults" to the complexity and breadth of the query (1-10).
-- For most cases, remember to set "includeDomains": ["twitter.com", "reddit.com"] unless its a very specific question.
-
-Below are a few example transformations. **Note that these examples are solely illustrative of how to format and tune responses; always adapt to the user's actual query.**
-
----
-Example 1:
-User query: "What is the capital of Canada?"
-Potential output:
-{
-  "refinedQuery": "capital of Canada",
-  "searchOptions": {
-    "searchDepth": "basic",
-    "topic": "general",
-    "maxResults": 3,
-    "includeAnswer": "advanced",
-    "includeImages": false,
-    "includeImageDescriptions": false,
-    "includeRawContent": false,
-    "includeDomains": ["twitter.com", "reddit.com"]
-  }
-}
-
----
-Example 2:
-User query: "Any recent breakthroughs in quantum computing?"
-Potential output:
-{
-  "refinedQuery": "latest breakthroughs in quantum computing",
-  "searchOptions": {
-    "searchDepth": "advanced",
-    "topic": "news",
-    "days": 7,
-    "timeRange": "week",
-    "maxResults": 8,
-    "includeAnswer": "basic",
-    "includeImages": false,
-    "includeImageDescriptions": false,
-    "includeRawContent": false,
-    "includeDomains": ["twitter.com", "reddit.com"]
-  }
-}
-
----
-Example 3:
-User query: "Explain the concept of black holes and their theoretical physics underpinnings."
-Potential output:
-{
-  "refinedQuery": "black holes theoretical physics explanation",
-  "searchOptions": {
-    "searchDepth": "advanced",
-    "topic": "general",
-    "timeRange": "year",
-    "maxResults": 8,
-    "includeAnswer": "advanced",
-    "includeImages": true,
-    "includeImageDescriptions": false,
-    "includeRawContent": false,
-    "includeDomains": ["twitter.com", "reddit.com"]
-  }
-}
-
----
-Remember:
-- Analyze the users query carefully.
-- Produce only a single JSON object adhering to the above schema.
-- Do not include any additional text, explanations, or keys in your response.
+- For most cases, remember to set "includeDomains": ["twitter.com", "reddit.com"] unless its a very specific question.` : `
+- Keep the query concise and focused for best results
+- Adjust maxResults based on the complexity of the query (1-10)`}
 `
             },
             { role: 'user', content: userMessage }],
@@ -484,22 +413,34 @@ Remember:
           data = JSON.parse(jsonMatch[0]);
         }
 
-        // Validate and sanitize search options according to Tavily API specs
+        // Validate and sanitize search options according to the API specs
         const refinedQuery = data.refinedQuery || userMessage;
-        const searchOptions = {
+        const searchOptions = searchProvider === 'tavily' ? {
           searchDepth: ["basic", "advanced"].includes(data.searchOptions?.searchDepth)
             ? data.searchOptions.searchDepth
             : "advanced",
           maxResults: Math.min(Math.max(1, data.searchOptions?.maxResults || 5), 10),
-          includeAnswer: false, // We handle answer generation separately
+          includeAnswer: false,
           includeRawContent: true,
-          // Only include valid optional parameters if they were specified
           ...(data.searchOptions?.includeImages !== undefined && { includeImages: Boolean(data.searchOptions.includeImages) }),
           ...(data.searchOptions?.includeVideos !== undefined && { includeVideos: Boolean(data.searchOptions.includeVideos) }),
           ...(data.searchOptions?.includeNews !== undefined && { includeNews: Boolean(data.searchOptions.includeNews) }),
           ...(data.searchOptions?.includeRecentResults !== undefined && { includeRecentResults: Boolean(data.searchOptions.includeRecentResults) }),
           ...(Array.isArray(data.searchOptions?.filterSites) && { filterSites: data.searchOptions.filterSites }),
           ...(Array.isArray(data.searchOptions?.excludeSites) && { excludeSites: data.searchOptions.excludeSites })
+        } : {
+          query: refinedQuery,
+          location: 'us',
+          pro_mode: false,
+          response_language: 'en',
+          answer_type: 'text',
+          search_type: 'general',
+          verbose_mode: false,
+          return_sources: true,
+          return_images: false,
+          return_citations: true,
+          recency_filter: 'anytime',
+          date_context: new Date().toISOString()
         };
 
         // SEARCH PHASE
@@ -514,39 +455,68 @@ Remember:
             searchResults: []
           }]);
 
-          const searchData = await search(refinedQuery, searchOptions);
-          results = searchData.results || [];
-          setCurrentSearchResults(results);
+          if (searchProvider === 'tavily') {
+            const searchData = await tavilySearch(refinedQuery, searchOptions);
+            results = searchData.results || [];
+            setCurrentSearchResults(results);
 
-          // Update message with search results or no results message
-          setMessages(prev => {
-            const newMessages = [...prev];
-            const lastMessage = newMessages[newMessages.length - 1];
-            if (lastMessage && lastMessage.role === 'assistant') {
-              if (results.length > 0) {
-                lastMessage.searchResults = results;
-              } else {
-                // Change content type to indicate no results
-                lastMessage.content = 'no-results';
-                lastMessage.searchResults = [];
+            // Update message with search results or no results message
+            setMessages(prev => {
+              const newMessages = [...prev];
+              const lastMessage = newMessages[newMessages.length - 1];
+              if (lastMessage && lastMessage.role === 'assistant') {
+                if (results.length > 0) {
+                  lastMessage.searchResults = results;
+                } else {
+                  // Change content type to indicate no results
+                  lastMessage.content = 'no-results';
+                  lastMessage.searchResults = [];
+                }
+              }
+              return newMessages;
+            });
+
+            // EXTRACTION PHASE for Tavily
+            setIsExtracting(true);
+            if (results.length > 0) {
+              const urls = results.sort((a, b) => b.score - a.score).slice(0, 3).map(r => r.url);
+              const extractData = await extract(urls);
+              if (extractData && extractData.results && extractData.results.length > 0) {
+                extractedContent = extractData.results.map(r => r.raw_content).filter(Boolean).join('\n\n');
               }
             }
-            return newMessages;
-          });
-        }
-        setIsSearching(false);
+            setIsExtracting(false);
+          } else {
+            // OpenPerplex search
+            const searchData = await openPerplexSearch(refinedQuery, {
+              ...searchOptions,
+              return_sources: true,
+              return_citations: true
+            });
 
-        // EXTRACTION PHASE
-        setIsExtracting(true);
-        let extractedContent = '';
-        if (results.length > 0) {
-          const urls = results.sort((a, b) => b.score - a.score).slice(0, 3).map(r => r.url);
-          const extractData = await extract(urls);
-          if (extractData && extractData.results && extractData.results.length > 0) {
-            extractedContent = extractData.results.map(r => r.raw_content).filter(Boolean).join('\n\n');
+            results = searchData.results || [];
+            setCurrentSearchResults(results);
+
+            // Update message with search results
+            setMessages(prev => {
+              const newMessages = [...prev];
+              const lastMessage = newMessages[newMessages.length - 1];
+              if (lastMessage && lastMessage.role === 'assistant') {
+                if (results.length > 0) {
+                  lastMessage.searchResults = results;
+                } else {
+                  lastMessage.content = 'no-results';
+                  lastMessage.searchResults = [];
+                }
+              }
+              return newMessages;
+            });
+
+            // For OpenPerplex, we already have the LLM response and don't need extraction
+            extractedContent = searchData.llm_response || '';
           }
         }
-        setIsExtracting(false);
+        setIsSearching(false);
 
         // Format context for the model with better structure
         contextualizedInput = `Here are the most relevant search results for your question about "${refinedQuery}":
@@ -557,17 +527,18 @@ ${results && results.length > 0 ? results
 ${r.content}`)
             .join('\n\n') : 'No search results found.'}
 
-${extractedContent ? `Additional extracted content:\n${extractedContent}\n\n` : ''}
+${extractedContent ? (searchProvider === 'tavily' ?
+            `Additional extracted content:\n${extractedContent}\n\n` :
+            `LLM Response:\n${extractedContent}\n\n`) : ''}
 
 The user asked: "${userMessage}"
 
-Please provide a clear and focused response based on the search results above. Follow these guidelines:
+Please provide a clear and focused response based on the ${searchProvider} search results above. Follow these guidelines:
 
 1. For simple factual questions:
    - Give the direct answer immediately 
    - Include the source reference as a hyperlink using the URL from result [index]${results && results.length > 0 ? `, e.g. [Click here](${results[0].url})` : ''}
    - Add some context to the answer, but keep it brief and to the point
-  
 
 2. For complex questions requiring explanation:
    - Start with a 1-2 sentence summary of the key point
@@ -588,9 +559,9 @@ Please provide a clear and focused response based on the search results above. F
    - Note any important limitations or uncertainties
    - Only include relevant information from the sources
    - Format source citations as Markdown hyperlinks using the URLs from the search results
+${searchProvider === 'openperplex' ? '\n5. For OpenPerplex responses:\n   - Incorporate the LLM response when relevant\n   - Balance between direct quotes and your own synthesis\n   - Cite sources while maintaining a natural flow' : ''}
 
-Please analyze the search results and provide your response following these guidelines.
-`;
+Please analyze the search results and provide your response following these guidelines.`;
       }
 
       // Add thinking message
@@ -689,6 +660,18 @@ Please analyze the search results and provide your response following these guid
                             Search
                           </Label>
                         </div>
+                        {searchEnabled && (
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={searchProvider === 'openperplex'}
+                              onCheckedChange={(checked) => setSearchProvider(checked ? 'openperplex' : 'tavily')}
+                              className="data-[state=checked]:bg-[#4A4235]"
+                            />
+                            <Label className={`text-sm transition-opacity duration-200 ${searchProvider === 'openperplex' ? 'text-[#4A4235] font-medium opacity-100' : 'text-[#4A4235] opacity-50'}`}>
+                              OpenPerplex
+                            </Label>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={reasoningEnabled}
@@ -780,6 +763,18 @@ Please analyze the search results and provide your response following these guid
                       Search
                     </Label>
                   </div>
+                  {searchEnabled && (
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={searchProvider === 'openperplex'}
+                        onCheckedChange={(checked) => setSearchProvider(checked ? 'openperplex' : 'tavily')}
+                        className="data-[state=checked]:bg-[#4A4235]"
+                      />
+                      <Label className={`text-sm transition-opacity duration-200 ${searchProvider === 'openperplex' ? 'text-[#4A4235] font-medium opacity-100' : 'text-[#4A4235] opacity-50'}`}>
+                        OpenPerplex
+                      </Label>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={reasoningEnabled}
