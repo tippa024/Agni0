@@ -69,6 +69,7 @@ export async function POST(req: Request) {
         let content = "";
         let isFirstContent = true;
         let isFirstReasoning = true;
+        let isClosed = false;
 
         try {
           for await (const chunk of response) {
@@ -101,10 +102,16 @@ export async function POST(req: Request) {
             console.log("[DeepSeek] Final answer content:", content);
           }
 
-          controller.close();
+          if (!isClosed) {
+            controller.close();
+            isClosed = true;
+          }
         } catch (error) {
           console.error("[DeepSeek] Stream error:", error);
-          controller.error(error);
+          if (!isClosed) {
+            controller.error(error);
+            isClosed = true;
+          }
         }
       },
     });

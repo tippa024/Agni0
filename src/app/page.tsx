@@ -1,7 +1,6 @@
 'use client';
 
-import { useChat } from 'ai/react';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import { Source_Serif_4 } from 'next/font/google';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
@@ -15,20 +14,19 @@ import 'prismjs/components/prism-json';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import DOMPurify from 'dompurify';
-import { useTavilySearch } from './lib/hooks/useTavilySearch';
-import { useTavilyExtract } from './lib/hooks/useTavilyExtract';
-import { useOpenPerplexSearch } from './lib/hooks/useOpenPerplexSearch';
+import { useTavilySearch } from './hooks/useTavilySearch';
+import { useTavilyExtract } from './hooks/useTavilyExtract';
+import { useOpenPerplexSearch } from './hooks/useOpenPerplexSearch';
+import { TavilySearchOptions, OpenPerplexSearchOptions } from './hooks/useSearch';
+import { Switch } from './components/ui/Switch';
+import { Label } from './components/ui/Label';
 import { MessageBubble } from './components/MessageBubble';
-import { Switch } from './components/ui/switch';
-import { Label } from './components/ui/label';
+import { ChatInput } from './components/ChatInput';
 
 const sourceSerif4 = Source_Serif_4({
   subsets: ['latin'],
   weight: ['400', '600', '700'],
 });
-
-
-
 
 // Types for different output formats
 type OutputType = 'code' | 'writing' | 'equation' | 'markdown';
@@ -38,6 +36,19 @@ interface OutputFormat {
   content: string;
   language?: string;
   displayMode?: boolean;
+}
+
+interface SearchResult {
+  title: string;
+  content: string;
+  url: string;
+  score: number;
+}
+
+interface Message {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  searchResults?: SearchResult[];
 }
 
 // Helper function for code highlighting with fallback
@@ -252,46 +263,6 @@ function formatMarkdown(text: string): string {
   });
 }
 
-interface MessageContent {
-  reasoning?: string;
-  answer?: string;
-}
-
-function LoadingBubble() {
-  return (
-    <div className="flex justify-start mb-12">
-      <div className="w-[90%] rounded-sm bg-white px-8 py-6 shadow-sm relative before:absolute before:inset-[-2px] before:-z-[1] before:rounded-sm before:bg-black/40 before:blur-md before:animate-pulse after:absolute after:inset-[-4px] after:-z-[2] after:rounded-sm after:bg-black/30 after:blur-xl after:animate-pulse">
-        <div className="mb-2 text-sm font-mono uppercase tracking-wide text-black">AGNI</div>
-        <div className="flex items-center gap-3 text-black font-mono">
-          <span>Thinking</span>
-          <span className="flex gap-1">
-            {[0, 0.3, 0.6].map((delay) => (
-              <span
-                key={delay}
-                className="h-1.5 w-1.5 rounded-full bg-black animate-pulse"
-                style={{ animationDelay: `${delay}s` }}
-              />
-            ))}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface SearchResult {
-  title: string;
-  content: string;
-  url: string;
-  score: number;
-}
-
-interface Message {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  searchResults?: SearchResult[];
-}
-
 // Add getDomain helper
 const getDomain = (url: string) => {
   try {
@@ -415,7 +386,7 @@ ${searchProvider === 'tavily' ? `
 
         // Validate and sanitize search options according to the API specs
         const refinedQuery = data.refinedQuery || userMessage;
-        const searchOptions = searchProvider === 'tavily' ? {
+        const searchOptions: TavilySearchOptions | OpenPerplexSearchOptions = searchProvider === 'tavily' ? {
           searchDepth: ["basic", "advanced"].includes(data.searchOptions?.searchDepth)
             ? data.searchOptions.searchDepth
             : "advanced",
@@ -456,7 +427,7 @@ ${searchProvider === 'tavily' ? `
           }]);
 
           if (searchProvider === 'tavily') {
-            const searchData = await tavilySearch(refinedQuery, searchOptions);
+            const searchData = await tavilySearch(refinedQuery, searchOptions as TavilySearchOptions);
             results = searchData.results || [];
             setCurrentSearchResults(results);
 
@@ -488,12 +459,7 @@ ${searchProvider === 'tavily' ? `
             setIsExtracting(false);
           } else {
             // OpenPerplex search
-            const searchData = await openPerplexSearch(refinedQuery, {
-              ...searchOptions,
-              return_sources: true,
-              return_citations: true
-            });
-
+            const searchData = await openPerplexSearch(refinedQuery, searchOptions as OpenPerplexSearchOptions);
             results = searchData.results || [];
             setCurrentSearchResults(results);
 
@@ -645,9 +611,22 @@ Please analyze the search results and provide your response following these guid
                 Ask me anything
               </h1>
               <div className="w-full max-w-2xl animate-fade-in">
-                <form onSubmit={handleSubmit}>
+                <ChatInput
+                  input={input}
+                  searchEnabled={searchEnabled}
+                  reasoningEnabled={reasoningEnabled}
+                  searchProvider={searchProvider}
+                  font={sourceSerif4}
+                  handleSubmit={handleSubmit}
+                  setInput={setInput}
+                  setSearchEnabled={setSearchEnabled}
+                  setReasoningEnabled={setReasoningEnabled}
+                  setSearchProvider={setSearchProvider}
+                />
+
+                {/* <form onSubmit={handleSubmit}>
                   <div className="relative flex items-center gap-3 bg-white rounded-xl border border-[#4A4235]/15 shadow-sm hover:shadow-md transition-all duration-200 w-full group focus-within:border-[#4A4235]/30 focus-within:shadow-lg">
-                    {/* Control Toggles */}
+                    // Control Toggles 
                     <div className="flex items-center gap-1.5 p-3">
                       <div className="flex flex-col gap-2 pr-3 border-r border-[#4A4235]/10 my-2">
                         <div className="flex items-center gap-2">
@@ -685,7 +664,7 @@ Please analyze the search results and provide your response following these guid
                       </div>
                     </div>
 
-                    {/* Input Area */}
+                     //Input Area 
                     <textarea
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
@@ -705,7 +684,7 @@ Please analyze the search results and provide your response following these guid
                       }}
                     />
 
-                    {/* Send Button */}
+                    // Send Button 
                     <div className="transition-all duration-300 ease-out opacity-0 scale-90 origin-center"
                       style={{
                         opacity: input.trim() ? 1 : 0,
@@ -723,7 +702,7 @@ Please analyze the search results and provide your response following these guid
                       </button>
                     </div>
                   </div>
-                </form>
+                </form> */}
               </div>
             </div>
           ) : (
@@ -748,9 +727,22 @@ Please analyze the search results and provide your response following these guid
             : 'translate-y-full opacity-0 pointer-events-none'
             }`}
         >
-          <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
+          <ChatInput
+            input={input}
+            searchEnabled={searchEnabled}
+            reasoningEnabled={reasoningEnabled}
+            searchProvider={searchProvider}
+            font={sourceSerif4}
+            handleSubmit={handleSubmit}
+            setInput={setInput}
+            setSearchEnabled={setSearchEnabled}
+            setReasoningEnabled={setReasoningEnabled}
+            setSearchProvider={setSearchProvider}
+
+          />
+          {/*<form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
             <div className="relative flex items-center gap-3 bg-white rounded-xl border border-[#4A4235]/15 shadow-sm hover:shadow-md transition-all duration-200 w-full group focus-within:border-[#4A4235]/30 focus-within:shadow-lg">
-              {/* Control Toggles */}
+              {/* Control Toggles 
               <div className="flex items-center gap-1.5 p-3">
                 <div className="flex flex-col gap-2 pr-3 border-r border-[#4A4235]/10 my-2">
                   <div className="flex items-center gap-2">
@@ -787,8 +779,8 @@ Please analyze the search results and provide your response following these guid
                   </div>
                 </div>
               </div>
-
-              {/* Input Area */}
+    
+              {/* Input Area 
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -806,9 +798,9 @@ Please analyze the search results and provide your response following these guid
                   target.style.height = '48px'
                   target.style.height = `${Math.min(target.scrollHeight, 200)}px`
                 }}
-              />
+          />
 
-              {/* Send Button */}
+              {/* Send Button 
               <div className="transition-all duration-300 ease-out opacity-0 scale-90 origin-center"
                 style={{
                   opacity: input.trim() ? 1 : 0,
@@ -826,7 +818,7 @@ Please analyze the search results and provide your response following these guid
                 </button>
               </div>
             </div>
-          </form>
+          </form> */}
         </div>
       </div >
     </main >

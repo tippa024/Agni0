@@ -9,7 +9,7 @@ export interface SearchResult {
   score: number;
 }
 
-interface SearchOptions {
+export interface TavilySearchOptions {
   searchDepth?: "basic" | "advanced";
   maxResults?: number;
   includeAnswer?: boolean | "basic" | "advanced";
@@ -22,7 +22,7 @@ interface SearchOptions {
   excludeSites?: string[];
 }
 
-interface OpenPerplexOptions {
+export interface OpenPerplexSearchOptions {
   query: string;
   location?: string;
   pro_mode?: boolean;
@@ -46,19 +46,22 @@ export function useSearch() {
   const search = async (
     query: string,
     provider: "tavily" | "openperplex",
-    options?: SearchOptions | OpenPerplexOptions
+    options?: TavilySearchOptions | OpenPerplexSearchOptions
   ) => {
     setIsSearching(true);
     try {
       let results: SearchResult[] = [];
 
       if (provider === "tavily") {
-        const searchData = await tavilySearch(query, options as SearchOptions);
+        const searchData = await tavilySearch(
+          query,
+          options as TavilySearchOptions
+        );
         results = searchData.results || [];
       } else {
         const searchData = await openPerplexSearch(
           query,
-          options as OpenPerplexOptions
+          options as OpenPerplexSearchOptions
         );
         results = searchData.results || [];
       }

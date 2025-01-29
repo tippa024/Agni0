@@ -123,8 +123,6 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
         return (
             <div className="flex justify-end mb-4">
                 <div className="max-w-2xl px-4 py-2">
-                    {/*}   <div className={`mb-1 text-xs ${sourceSerif4.className} text-[#2C2C2C]/70 text-right`}>Mavanudu</div> 
-                    <div className="w-full h-px bg-[#2C2C2C]/10 my-2"></div> */}
                     <div className={`${sourceSerif4.className} text-[#4A4235] text-base`}>{content}</div>
                 </div>
             </div>
@@ -221,7 +219,7 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
     return (
         <div className="flex justify-start mb-12">
             <div className="w-[90%] rounded-sm bg-white px-8 py-6 shawdow-sm border border-white">
-                <div className="mb-2 text-sm font-mono uppercase tracking-wide text-[#2C2C2C]">ChatBot</div>
+                <div className="mb-2 text-sm font-mono uppercase tracking-wide text-[#2C2C2C]">Machine</div>
                 {/* Thinking/Reasoning Section */}
                 {messageContent.reasoning && (
                     <div className="mb-6">
