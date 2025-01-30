@@ -18,10 +18,9 @@ import { useTavilySearch } from './hooks/useTavilySearch';
 import { useTavilyExtract } from './hooks/useTavilyExtract';
 import { useOpenPerplexSearch } from './hooks/useOpenPerplexSearch';
 import { TavilySearchOptions, OpenPerplexSearchOptions } from './hooks/useSearch';
-import { Switch } from './components/ui/Switch';
-import { Label } from './components/ui/Label';
 import { MessageBubble } from './components/MessageBubble';
 import { ChatInput } from './components/ChatInput';
+import { handleChatSubmit } from './lib/handlers/chatSubmitHandler';
 
 const sourceSerif4 = Source_Serif_4({
   subsets: ['latin'],
@@ -289,11 +288,51 @@ export default function Home() {
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
   const [searchProvider, setSearchProvider] = useState<'tavily' | 'openperplex'>('tavily');
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([systemMessage]);
+
   const { search: tavilySearch } = useTavilySearch();
   const { search: openPerplexSearch } = useOpenPerplexSearch();
-  const { extract } = useTavilyExtract();
+  const { extract: rawExtract } = useTavilyExtract();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Wrap extract to handle undefined case
+  const extract = async (urls: string[]) => {
+    const result = await rawExtract(urls);
+    return result || { results: [] };
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
+    await handleChatSubmit(
+      e,
+      // State object
+      {
+        messages,
+        input,
+        isSearching,
+        isExtracting,
+        currentSearchResults,
+        searchEnabled,
+        reasoningEnabled,
+        searchProvider,
+        chatHistory,
+      },
+      // Actions object
+      {
+        setMessages,
+        setInput,
+        setIsSearching,
+        setIsExtracting,
+        setCurrentSearchResults,
+        setChatHistory,
+      },
+      // Handlers object
+      {
+        tavilySearch,
+        openPerplexSearch,
+        extract,
+      }
+    );
+  };
+
+  {/* const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
 
@@ -599,7 +638,7 @@ Please analyze the search results and provide your response following these guid
       setIsSearching(false);
       setIsExtracting(false);
     }
-  };
+  }; */}
 
   return (
     <main className="flex min-h-screen w-screen flex-col items-center justify-between bg-white">
@@ -617,7 +656,7 @@ Please analyze the search results and provide your response following these guid
                   reasoningEnabled={reasoningEnabled}
                   searchProvider={searchProvider}
                   font={sourceSerif4}
-                  handleSubmit={handleSubmit}
+                  handleSubmit={onSubmit}
                   setInput={setInput}
                   setSearchEnabled={setSearchEnabled}
                   setReasoningEnabled={setReasoningEnabled}
@@ -733,7 +772,7 @@ Please analyze the search results and provide your response following these guid
             reasoningEnabled={reasoningEnabled}
             searchProvider={searchProvider}
             font={sourceSerif4}
-            handleSubmit={handleSubmit}
+            handleSubmit={onSubmit}
             setInput={setInput}
             setSearchEnabled={setSearchEnabled}
             setReasoningEnabled={setReasoningEnabled}
