@@ -16,11 +16,40 @@ A sophisticated AI chat assistant with integrated search capabilities, built wit
   - Markdown support with syntax highlighting
   - Source attribution with clickable links
   - Expandable search results view
-- 🎨 **Polished UI/UX**:
-  - Clean, minimalist design
-  - Responsive layout
-  - Smooth transitions and animations
-  - Source Serif 4 font integration
+
+## Customizing Search Behavior
+
+The heart of Agni's intelligence lies in its query refinement system. You can customize how the AI processes queries by modifying the system prompt in:
+
+```typescript
+// File: src/app/lib/handlers/chatSubmitHandler.ts (around line 110)
+
+messages: [
+  {
+    role: "system",
+    content: `You are a specialized LLM that refines user queries to maximize search result quality.
+              
+    Your task is to optimize the user's query for the ${
+      state.searchProvider
+    } search API.
+    The current date is ${new Date().toISOString().split("T")[0]} ...`,
+  },
+];
+```
+
+This prompt determines how Agni:
+
+- Refines user queries for better search results
+- Formats search parameters for different providers
+- Handles temporal context in searches
+- Processes search results for the final response
+
+You can modify this prompt to:
+
+- Adjust search behavior for specific domains
+- Change result ranking priorities
+- Add custom instructions for specific search providers
+- Implement domain-specific knowledge or constraints
 
 ## Technical Stack
 
@@ -29,7 +58,6 @@ A sophisticated AI chat assistant with integrated search capabilities, built wit
 - 🎨 **Tailwind CSS** for styling
 - 🔄 **React Server Components**
 - 📱 **Responsive Design**
-- 🧪 **Jest** for testing
 
 ## Getting Started
 
@@ -49,6 +77,7 @@ npm install
 3. Create a `.env.local` file in the root directory and add your API keys:
 
 ```env
+DEEPSEEK_API_KEY=your_deepseek_api_key
 TAVILY_API_KEY=your_tavily_api_key
 OPENPERPLEX_API_KEY=your_openperplex_api_key
 ```
@@ -81,34 +110,6 @@ src/
 │       ├── handlers/      # Chat and search handlers
 │       └── utils/         # Helper functions
 ```
-
-## Features in Detail
-
-### Search Capabilities
-
-- Toggle between Tavily (Basic) and OpenPerplex (PRO) search providers
-- Query refinement for better search results
-- Real-time search status indicators
-- Source scoring and relevance ranking
-
-### Chat Interface
-
-- Clean, minimalist design
-- Real-time message streaming
-- Markdown support with syntax highlighting
-- Expandable search results with source attribution
-- Smooth animations and transitions
-
-### Development Features
-
-- TypeScript for type safety
-- Jest testing setup
-- ESLint configuration
-- Tailwind CSS with custom configuration
-
-## License
-
-MIT License
 
 ## Author
 
