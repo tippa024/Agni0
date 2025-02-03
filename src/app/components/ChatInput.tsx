@@ -32,11 +32,12 @@ export function ChatInput({
         if (!input.trim()) return;
 
         // Add console logs
-        console.log('User Query:', input.trim());
-        console.log('Search Enabled:', searchEnabled);
-        console.log('Search Provider:', searchProvider);
-        console.log('Reasoning Enabled:', reasoningEnabled);
-
+        console.log('Chat Input Config:', {
+            userQuery: input.trim(),
+            searchEnabled,
+            ...(searchEnabled && { searchProvider }),
+            reasoningEnabled
+        });
         handleSubmit(e);
     };
 
@@ -97,12 +98,14 @@ export function ChatInput({
                         }
                     }}
                     placeholder="What's on your mind?"
-                    className={`flex-1 min-h-[48px] py-2 px-3 text-[#2C2C2C] ${font.className}
+                    className={`flex-1 min-h-[48px] max-h-[120px] max-w-[600px] py-2 px-3 text-[#2C2C2C] ${font.className}
                         bg-white border-none focus:outline-none resize-none text-base
-                        leading-relaxed font-mono placeholder:text-[#2C2C2C]/30`}
+                        leading-relaxed font-mono placeholder:text-[#2C2C2C]/30 overflow-y-auto scrollbar-hide`}
                     style={{
                         height: '48px',
-                        overflow: 'hidden'
+                        overflowY: 'auto',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none'
                     }}
                     onInput={(e) => {
                         const target = e.target as HTMLTextAreaElement

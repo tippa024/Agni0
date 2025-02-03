@@ -8,13 +8,7 @@ interface DeepSeekDelta {
   reasoning_content?: string;
 }
 
-interface Message {
-  role: "system" | "user" | "assistant";
-  content: string;
-  id?: string;
-}
-
-// OpenAI client setup
+// client setup
 const client = new OpenAI({
   baseURL: "https://api.deepseek.com/v1",
   apiKey: process.env.DEEPSEEK_API_KEY || "",
@@ -24,7 +18,7 @@ const client = new OpenAI({
   },
 });
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 export async function POST(req: Request) {
   if (!process.env.DEEPSEEK_API_KEY) {
@@ -67,51 +61,56 @@ export async function POST(req: Request) {
         const encoder = new TextEncoder();
         let reasoningContent = "";
         let content = "";
-        let isFirstContent = true;
-        let isFirstReasoning = true;
-        let isClosed = false;
+        let currentPhase = ""; // Track which type of content we're currently processing
 
         try {
           for await (const chunk of response) {
             const delta = chunk.choices?.[0]?.delta as DeepSeekDelta;
             if (!delta) continue;
 
+            // Handle reasoning content
             if (delta.reasoning_content && reasoningEnabled) {
-              console.log("[DeepSeek] Working...");
-              if (isFirstReasoning) {
-                controller.enqueue(encoder.encode("Reasoning: "));
-                isFirstReasoning = false;
+              // If we were previously in content phase, add a separator
+              if (currentPhase === "content") {
+                controller.enqueue(encoder.encode("\n\n"));
+              }
+              // If this is the first reasoning content
+              if (currentPhase !== "reasoning") {
+                controller.enqueue(encoder.encode("Reasoning:\n"));
+                currentPhase = "reasoning";
               }
               reasoningContent += delta.reasoning_content;
               controller.enqueue(encoder.encode(delta.reasoning_content));
-            } else if (delta.content) {
-              if (isFirstContent) {
-                controller.enqueue(encoder.encode("\n\nAnswer: "));
-                isFirstContent = false;
+            }
+
+            // Handle main content
+            if (delta.content) {
+              // If we were previously in reasoning phase, add a separator
+              if (currentPhase === "reasoning") {
+                controller.enqueue(encoder.encode("\n\nAnswer:\n"));
+              }
+              // If this is the first content
+              if (currentPhase !== "content") {
+                currentPhase = "content";
               }
               content += delta.content;
               controller.enqueue(encoder.encode(delta.content));
             }
           }
 
+          // Log final content for debugging
           if (reasoningEnabled) {
-            console.log(
-              "[DeepSeek] Final reasoning content:",
-              reasoningContent
-            );
-            console.log("[DeepSeek] Final answer content:", content);
+            console.log("[DeepSeek] Stream completed", {
+              hasReasoningContent: reasoningContent.length > 0,
+              hasMainContent: content.length > 0,
+              finalPhase: currentPhase,
+            });
           }
 
-          if (!isClosed) {
-            controller.close();
-            isClosed = true;
-          }
+          controller.close();
         } catch (error) {
           console.error("[DeepSeek] Stream error:", error);
-          if (!isClosed) {
-            controller.error(error);
-            isClosed = true;
-          }
+          controller.error(error);
         }
       },
     });

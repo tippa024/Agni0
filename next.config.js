@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Enable experimental features
+  // Enable SWC compiler by default in Next.js 15
   experimental: {
+    forceSwcTransforms: true,
     serverActions: {
       allowedOrigins: ["localhost:3000"],
     },

@@ -1,44 +1,21 @@
 import { NextResponse } from "next/server";
 import { tavily } from "@tavily/core";
 
-// Define error types based on Tavily documentation
-class TavilyError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "TavilyError";
-  }
+// Add interface for Tavily response
+interface TavilyResponse {
+  results: any[];
+  responseTime: number;
 }
 
-class MissingAPIKeyError extends TavilyError {
-  constructor() {
-    super("API key is missing. Please provide a valid API key.");
-  }
-}
-
-class InvalidAPIKeyError extends TavilyError {
-  constructor() {
-    super("Invalid API key provided. Please check your API key.");
-  }
-}
-
-class UsageLimitExceededError extends TavilyError {
-  constructor() {
-    super(
-      "Usage limit exceeded. Please check your plan's usage limits or consider upgrading."
-    );
-  }
-}
-
-interface SearchParams {
-  query: string;
-  search_depth?: "basic" | "advanced";
-  topic?: "general" | "news";
-  days?: number;
-  max_results?: number;
-  include_answer?: boolean;
-  include_raw_content?: boolean;
-  include_images?: boolean;
-}
+// Define default search options
+const DEFAULT_SEARCH_OPTIONS = {
+  searchDepth: "basic" as const,
+  maxResults: 5,
+  includeAnswer: true,
+  includeImages: false,
+  includeRawContent: false,
+  topic: "general" as const,
+};
 
 export const runtime = "edge";
 
@@ -46,138 +23,79 @@ export async function POST(req: Request) {
   // Check API key first
   if (!process.env.TAVILY_API_KEY) {
     console.error("Tavily API key not found");
-    throw new MissingAPIKeyError();
+    return NextResponse.json(
+      { error: "API key is missing. Please provide a valid API key." },
+      { status: 500 }
+    );
   }
 
-  try {
-    const params: SearchParams = await req.json();
+  // Create abort controller for timeout
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, 60000); // 60 second timeout
 
-    if (!params.query) {
+  try {
+    const { query, options = {} } = await req.json();
+
+    if (!query) {
       return NextResponse.json({ error: "Query is required" }, { status: 400 });
     }
 
     // Initialize client with API key
     const client = tavily({ apiKey: process.env.TAVILY_API_KEY });
 
-    console.log("Starting Tavily search with params:", {
-      query: params.query,
-      search_depth: params.search_depth || "advanced",
-      topic: params.topic || "general",
-      max_results: params.max_results || 10,
-      include_answer: params.include_answer || false,
-      include_raw_content: params.include_raw_content || false,
-      include_images: params.include_images || false,
-    });
+    console.log("Starting Tavily search with query:", query);
+    console.log("Search options received:", options);
 
-    // Create a new TransformStream for streaming the response
-    const stream = new TransformStream();
-    const writer = stream.writable.getWriter();
-    const encoder = new TextEncoder();
+    // Merge default options with provided options
+    const searchOptions = {
+      ...DEFAULT_SEARCH_OPTIONS,
+      ...options,
+      // Ensure critical options are within bounds
+      maxResults: Math.min(
+        Math.max(1, options.maxResults || DEFAULT_SEARCH_OPTIONS.maxResults),
+        10
+      ),
+      searchDepth: options.searchDepth || DEFAULT_SEARCH_OPTIONS.searchDepth,
+    };
 
-    // Start the search in the background
-    const searchPromise = client.search(params.query, {
-      searchDepth: params.search_depth || "advanced",
-      topic: params.topic || "general",
-      maxResults: params.max_results || 10,
-      includeAnswer: params.include_answer || false,
-      includeRawContent: params.include_raw_content || false,
-      includeImages: params.include_images || false,
-      includeDomains: [
-        // Tech and AI sources
-        "openai.com",
-        "github.com",
-        "arxiv.org",
-        "paperswithcode.com",
-        "huggingface.co",
-        "anthropic.com",
-        "deepmind.com",
-        // Social media
-        "twitter.com",
-        "x.com",
-        "reddit.com",
-        "linkedin.com",
-        // News and media
-        "reuters.com",
-        "bloomberg.com",
-        "apnews.com",
-        "bbc.com",
-        "cnn.com",
-        "nytimes.com",
-        "wsj.com",
-        "theguardian.com",
-        "forbes.com",
-        "techcrunch.com",
-        "wired.com",
-        "venturebeat.com",
-        // Knowledge bases
-        "wikipedia.org",
-        "stackoverflow.com",
-        "medium.com",
-        "towardsdatascience.com",
-        "substack.com",
-      ],
-    });
+    console.log("Final search options:", searchOptions);
 
-    // Process search results and stream them
-    searchPromise
-      .then(async (response) => {
-        console.log(
-          "Tavily search completed in",
-          response.responseTime,
-          "seconds"
+    // Perform the search with optimized parameters
+    const response = (await Promise.race([
+      client.search(query, searchOptions),
+      new Promise<never>((_, reject) => {
+        controller.signal.addEventListener("abort", () =>
+          reject(new Error("Search request timed out"))
         );
+      }),
+    ])) as TavilyResponse;
 
-        // Stream the results in chunks
-        const results = response.results || [];
-        const chunkSize = 3; // Send 3 results at a time
-
-        for (let i = 0; i < results.length; i += chunkSize) {
-          const chunk = results.slice(i, i + chunkSize);
-          await writer.write(
-            encoder.encode(JSON.stringify({ results: chunk }) + "\n")
-          );
-          // Add a small delay between chunks to simulate streaming
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-
-        await writer.close();
-      })
-      .catch(async (error) => {
-        console.error("Tavily search error:", error);
-        await writer.write(
-          encoder.encode(
-            JSON.stringify({
-              error: "Search failed",
-              details: error instanceof Error ? error.message : String(error),
-            }) + "\n"
-          )
-        );
-        await writer.close();
-      });
-
-    return new Response(stream.readable, {
-      headers: {
-        "Content-Type": "application/x-ndjson",
-        "Transfer-Encoding": "chunked",
-      },
+    console.log("Tavily search completed successfully", {
+      responseTime: response.responseTime,
+      resultsCount: response.results?.length,
     });
-  } catch (error) {
-    console.error("API Error:", error);
 
-    // Handle specific Tavily errors
-    if (error instanceof MissingAPIKeyError) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(response);
+  } catch (error: any) {
+    console.error("Tavily search error:", error);
+
+    // Handle specific error types
+    if (error?.message?.includes("timed out")) {
+      return NextResponse.json(
+        { error: "Search request timed out. Please try again." },
+        { status: 504 }
+      );
     }
 
-    if (error instanceof InvalidAPIKeyError) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
+    if (error?.message?.includes("rate limit")) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Please try again later." },
+        { status: 429 }
+      );
     }
 
-    if (error instanceof UsageLimitExceededError) {
-      return NextResponse.json({ error: error.message }, { status: 429 });
-    }
-
-    // Handle general errors
     return NextResponse.json(
       {
         error: "Search failed",
@@ -185,5 +103,7 @@ export async function POST(req: Request) {
       },
       { status: 500 }
     );
+  } finally {
+    clearTimeout(timeout);
   }
 }

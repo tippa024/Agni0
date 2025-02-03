@@ -1,14 +1,21 @@
 import { useState, useEffect, useRef, FC } from 'react';
 import { Source_Serif_4 } from 'next/font/google';
-import DOMPurify from 'dompurify';
-import Prism from 'prismjs';
-import hljs from 'highlight.js';
-import katex from 'katex';
+import { formatOutput } from '../lib/utils/outputFormatter';
 
 const sourceSerif4 = Source_Serif_4({
     subsets: ['latin'],
     weight: ['400', '600', '700'],
 });
+
+// Helper function to extract domain from URL
+const getDomain = (url: string): string => {
+    try {
+        const domain = new URL(url).hostname.replace('www.', '');
+        return domain.split('.')[0];
+    } catch {
+        return '';
+    }
+};
 
 interface SearchResult {
     title: string;
@@ -20,54 +27,13 @@ interface SearchResult {
 interface MessageBubbleProps {
     role: 'user' | 'assistant' | 'system';
     content: string;
-    searchResults?: SearchResult[];
+    context?: SearchResult[];
     isSearching?: boolean;
     isExtracting?: boolean;
     formattedContent?: string;
 }
 
-
-// Helper function for code highlighting with fallback
-const highlightCode = (code: string, language?: string): string => {
-    try {
-        // Try Prism.js first
-        if (language && Prism.languages[language]) {
-            return Prism.highlight(code, Prism.languages[language], language);
-        }
-        // Fallback to highlight.js
-        if (language && hljs.getLanguage(language)) {
-            return hljs.highlight(code, { language }).value;
-        }
-        return hljs.highlightAuto(code).value;
-    } catch (e) {
-        console.warn('Error highlighting code:', e);
-        return code;
-    }
-};
-
-// Helper function for math rendering
-const renderMath = (equation: string, displayMode: boolean = false): string => {
-    try {
-        return katex.renderToString(equation, {
-            displayMode,
-            throwOnError: false,
-            output: 'html',
-            strict: false,
-            trust: true,
-            macros: {
-                '\\RR': '\\mathbb{R}',
-                '\\NN': '\\mathbb{N}',
-                '\\ZZ': '\\mathbb{Z}',
-                '\\PP': '\\mathbb{P}'
-            }
-        });
-    } catch (e) {
-        console.warn('Error rendering equation:', e);
-        return `<span class="text-red-500">${equation}</span>`;
-    }
-};
-
-export function MessageBubble({ role, content, searchResults = [], isSearching, isExtracting }: MessageBubbleProps) {
+export function MessageBubble({ role, content, context = [], isSearching, isExtracting }: MessageBubbleProps) {
     const [showAllSources, setShowAllSources] = useState(false);
     const [isReasoningCollapsed, setIsReasoningCollapsed] = useState(true);
     const [messageContent, setMessageContent] = useState<{ reasoning?: string; answer?: string }>({});
@@ -75,35 +41,46 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
     const [isCopied, setIsCopied] = useState(false);
     const isAssistant = role === 'assistant';
 
-    // Get domain from URL
-    const getDomain = (url: string) => {
-        try {
-            const domain = new URL(url).hostname.replace('www.', '');
-            return domain.split('.')[0];
-        } catch {
-            return '';
-        }
-    };
-
     // Parse content sections
     useEffect(() => {
         if (isAssistant && content && content !== 'search-results') {
             try {
-                const parts = content.split(/\n\nAnswer:\s*/i);
-                const reasoning = parts[0].replace(/^Reasoning:\s*/i, '').trim();
-                const answer = parts[1] || '';
+                // Split content based on clear markers
+                const sections = content.split(/(?=Reasoning:|Answer:)/i);
+                let reasoning = '';
+                let answer = '';
 
-                // Format both reasoning and answer sections
-                const formattedReasoning = formatDeepSeekOutput(reasoning);
-                const formattedAnswer = formatDeepSeekOutput(answer);
+                // Process each section
+                sections.forEach(section => {
+                    const cleanSection = section.trim();
+                    if (/^Reasoning:/i.test(cleanSection)) {
+                        reasoning = cleanSection.replace(/^Reasoning:\s*/i, '').trim();
+                    } else if (/^Answer:/i.test(cleanSection)) {
+                        answer = cleanSection.replace(/^Answer:\s*/i, '').trim();
+                    } else if (!reasoning && !answer) {
+                        // If no markers found and it's the first section, treat as answer
+                        answer = cleanSection;
+                    }
+                });
+
+                // Format both reasoning and answer sections if they exist
+                const formattedReasoning = reasoning ? formatOutput(reasoning) : '';
+                const formattedAnswer = answer ? formatOutput(answer) : '';
 
                 setMessageContent({
                     reasoning: formattedReasoning,
-                    answer: formattedAnswer
+                    answer: formattedAnswer || formatOutput(content) // Fallback to full content if no answer section
                 });
-                setWordCount(reasoning.split(/\s+/).length || 0);
+
+                // Set word count for reasoning section if it exists
+                setWordCount(reasoning ? reasoning.split(/\s+/).length : 0);
+
             } catch (error) {
-                console.error('Error formatting content:', error);
+                console.error('Error parsing content sections:', error);
+                // Fallback to treating entire content as answer
+                setMessageContent({
+                    answer: formatOutput(content)
+                });
             }
         }
     }, [content, isAssistant]);
@@ -152,18 +129,18 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
     }
 
     // Search results message
-    if (content === 'search-results' && searchResults && searchResults.length > 0) {
+    if (context && context.length > 0) {
         return (
             <div className="flex justify-start mb-8">
                 <div className="w-full max-w-3xl bg-[#F5F5F5] border border-[#2C2C2C] px-4 py-3">
                     <div className="flex items-center justify-between mb-3 border-b border-[#2C2C2C] pb-2">
                         <span className="text-sm font-mono text-[#2C2C2C] uppercase">
-                            Sources [{searchResults.length}]
+                            Sources [{context.length}]
                         </span>
                     </div>
 
                     <div className="space-y-4 max-h-[400px] overflow-y-auto">
-                        {(showAllSources ? searchResults : searchResults.slice(0, 3)).map((result, index) => (
+                        {(showAllSources ? context : context.slice(0, 3)).map((result, index) => (
                             <div key={index} className="border-b border-[#2C2C2C]/20 pb-3 last:border-0">
                                 <div className="flex items-baseline gap-2 mb-1">
                                     <span className="font-mono text-sm text-[#2C2C2C]">{index + 1}.</span>
@@ -183,12 +160,12 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
                         ))}
                     </div>
 
-                    {searchResults.length > 3 && (
+                    {context.length > 3 && (
                         <button
                             onClick={() => setShowAllSources(!showAllSources)}
                             className="mt-3 text-xs font-mono text-[#2C2C2C]/70 hover:text-[#2C2C2C]"
                         >
-                            {showAllSources ? '[ - SHOW LESS - ]' : `[ + SHOW ${searchResults.length - 3} MORE ]`}
+                            {showAllSources ? '[ - SHOW LESS - ]' : `[ + SHOW ${context.length - 3} MORE ]`}
                         </button>
                     )}
                 </div>
@@ -212,15 +189,12 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
         );
     }
 
-    // Loading states
-
-
     // Final return statement for assistant message
     return (
         <div className="flex justify-start mb-12">
             <div className="w-[90%] rounded-sm bg-white px-8 py-6 shawdow-sm border border-white">
                 <div className="mb-2 text-sm font-mono uppercase tracking-wide text-[#2C2C2C]">Machine</div>
-                {/* Thinking/Reasoning Section */}
+                {/* Thinking/Reasoning Section - Only show if reasoning content exists */}
                 {messageContent.reasoning && (
                     <div className="mb-6">
                         <div
@@ -241,7 +215,7 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
                             </div>
                         </div>
                         {!isReasoningCollapsed && (
-                            <div className="mt-4 text-[#2C2C2C]/90 text-sm pl-4 border-l-2 border-[#2C2C2C]/20">
+                            <div className="mt-4 text-[#2C2C2C]/90 text-sm pl-4 border-l-2 border-[#2C2C2C]/20 overflow-y-auto">
                                 <div
                                     className="prose prose-sm max-w-none"
                                     dangerouslySetInnerHTML={{ __html: messageContent.reasoning }}
@@ -254,7 +228,7 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
                 {/* Answer Section */}
                 {messageContent.answer && (
                     <div className="space-y-4">
-                        <div className="h-px bg-[#2C2C2C]/10" />
+                        {messageContent.reasoning && <div className="h-px bg-[#2C2C2C]/10" />}
                         <div
                             className="prose prose-sm max-w-none"
                             dangerouslySetInnerHTML={{ __html: messageContent.answer }}
@@ -295,150 +269,4 @@ export function MessageBubble({ role, content, searchResults = [], isSearching, 
             </div>
         </div>
     );
-}
-
-const formatDeepSeekOutput = (content: string): string => {
-    if (!content) return '';
-
-    // 1) HEADINGS - Support multiple levels for better content structure
-    content = content.replace(
-        /^(#{1,6})\s+(.*)$/gm,
-        (_, hashes, text) => {
-            const level = hashes.length;
-            const sizes = {
-                1: 'text-2xl',
-                2: 'text-xl',
-                3: 'text-lg',
-                4: 'text-base',
-                5: 'text-sm',
-                6: 'text-xs'
-            };
-            return `<h${level} class="text-[#2C2C2C] font-semibold ${sizes[level as keyof typeof sizes]} mb-4 mt-8">${text}</h${level}>`;
-        }
-    );
-
-    // 2) LATEX EQUATIONS - Support for both display and inline math
-    // Display math (centered, larger)
-    content = content.replace(
-        /\$\$([\s\S]*?)\$\$/g,
-        (_, equation) => `
-            <div class="my-6 flex justify-center">
-                <div class="min-w-0 text-lg bg-white px-6 py-4 rounded shadow-sm">
-                    ${renderMath(equation.trim(), true)}
-                </div>
-            </div>`
-    );
-    // Inline math
-    content = content.replace(
-        /\$([^\$]+)\$/g,
-        (_, equation) => `<span class="font-serif">${renderMath(equation.trim(), false)}</span>`
-    );
-
-    // 3) TABLES - Clean table structure with proper headers
-    content = content.replace(
-        /((?:^\|[^\n]+\|\r?\n(?:\|[-:\s]+\|\r?\n)?(?:\|[^\n]+\|\r?\n)*)+)/gm,
-        (match) => {
-            const lines = match.trim().split('\n').map(ln => ln.trim());
-            if (lines.length < 2) return match;
-
-            const headerCells = lines[0]
-                .split('|')
-                .filter(cell => cell.trim())
-                .map(cell => cell.trim());
-
-            const bodyLines = lines.slice(2);
-
-            const thead = `
-                <thead>
-                    <tr>
-                        ${headerCells.map(h =>
-                `<th class="px-4 py-2 bg-[#F5F5F5] text-left font-semibold border border-[#E5E5E5]">${h}</th>`
-            ).join('')}
-                    </tr>
-                </thead>`;
-
-            const tbodyRows = bodyLines.map(row => {
-                const cells = row
-                    .split('|')
-                    .filter(cell => cell.trim())
-                    .map(cell => cell.trim());
-                return `
-                    <tr>
-                        ${cells.map(c => `<td class="px-4 py-2 border border-[#E5E5E5]">${c}</td>`).join('')}
-                    </tr>`;
-            }).join('');
-
-            return `
-                <div class="overflow-x-auto my-4">
-                    <table class="min-w-full border-collapse bg-white border border-[#E5E5E5]">
-                        ${thead}
-                        <tbody>${tbodyRows}</tbody>
-                    </table>
-                </div>`;
-        }
-    );
-
-    // 4) BULLET LISTS - For structured information
-    content = content.replace(
-        /(?:^|\n)((?:- .+\n?)+)/gm,
-        (match) => {
-            const lines = match.trim().split('\n')
-                .map(ln => ln.replace(/^- /, '').trim());
-            const liItems = lines.map(line =>
-                `<li class="mb-1 ml-6 list-disc">${line}</li>`
-            ).join('\n');
-            return `\n<ul class="my-4 list-outside">\n${liItems}\n</ul>\n`;
-        }
-    );
-
-    // 5) NUMBERED LISTS - For sequential information
-    content = content.replace(
-        /(?:^|\n)((?:\d+\.\s+.+\n?)+)/gm,
-        (match) => {
-            const lines = match.trim().split('\n')
-                .map(ln => ln.replace(/^\d+\.\s+/, '').trim());
-            const liItems = lines.map(line =>
-                `<li class="mb-1 ml-6 list-decimal">${line}</li>`
-            ).join('\n');
-            return `\n<ol class="my-4 list-outside">\n${liItems}\n</ol>\n`;
-        }
-    );
-
-    // 6) TEXT FORMATTING - Bold and italic for emphasis
-    content = content.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-    content = content.replace(/\*(.*?)\*/g, '<em class="italic">$1</em>');
-
-    // 7) LINKS - For references and citations
-    content = content.replace(
-        /\[([^\]]+)\]\((https?:\/\/[^\s)]+)(?:\s+"([^"]+)")?\)/g,
-        '<a href="$2" title="$3" target="_blank" rel="noopener noreferrer" class="text-[#4B6BFB] hover:underline">$1</a>'
-    );
-
-    // 8) HORIZONTAL RULES - For section breaks
-    content = content.replace(
-        /^---\s*$/gm,
-        '<hr class="my-8 border-t border-[#E5E5E5]" />'
-    );
-
-    // 9) PARAGRAPHS - Clean text formatting
-    content = content.replace(/\n{2,}/g, '</p><p class="my-4 leading-relaxed text-[#2C2C2C]">');
-
-    // Wrap content in paragraph if needed
-    if (!content.trim().startsWith('<')) {
-        content = `<p class="my-4 leading-relaxed text-[#2C2C2C]">${content}`;
-    }
-    if (!content.trim().endsWith('>')) {
-        content += '</p>';
-    }
-
-    return DOMPurify.sanitize(content, {
-        ADD_TAGS: [
-            'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'ul', 'ol', 'li',
-            'hr', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'div', 'span', 'p',
-            'a', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'mfrac'
-        ],
-        ADD_ATTR: [
-            'class', 'style', 'href', 'target', 'rel', 'title'
-        ]
-    });
-}; 
+} 
