@@ -5,7 +5,6 @@ import { Source_Serif_4 } from 'next/font/google';
 import { useTavilySearch } from './hooks/useTavilySearch';
 import { useTavilyExtract } from './hooks/useTavilyExtract';
 import { useOpenPerplexSearch } from './hooks/useOpenPerplexSearch';
-import { TavilySearchOptions, OpenPerplexSearchOptions } from './hooks/useSearch';
 import { MessageBubble } from './components/MessageBubble';
 import { ChatInput } from './components/ChatInput';
 import { handleChatSubmit } from './lib/handlers/chatSubmitHandler';
@@ -28,12 +27,6 @@ interface Message {
   context?: SearchResult[];
 }
 
-// Add constant system message
-const systemMessage = {
-  role: "system",
-  content: "You are a helpful assistant that provides clear, focused responses. For factual questions, you give direct answers with sources. For complex topics, you break down explanations into clear sections. You use simple language and note any uncertainties."
-};
-
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -43,7 +36,7 @@ export default function Home() {
   const [searchEnabled, setSearchEnabled] = useState(false);
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
   const [searchProvider, setSearchProvider] = useState<'tavily' | 'openperplex'>('tavily');
-  const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([systemMessage]);
+  const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
 
   const { search: tavilySearch } = useTavilySearch();
   const { search: openPerplexSearch } = useOpenPerplexSearch();
@@ -102,9 +95,10 @@ export default function Home() {
         // Initial centered layout with larger vertical spacing
         <div className="flex flex-col items-center justify-center min-h-screen p-4">
           <div className="w-full max-w-3xl -mt-32"> {/* Negative margin to adjust visual center */}
-            <h1 className={`text-4xl font-semibold text-[#4A4235] text-center mb-12 ${sourceSerif4.className}`}>
+            <h1 className={`text-4xl font-semibold text-[#4A4235] text-center mb-8 ${sourceSerif4.className}`}>
               Ask me anything
             </h1>
+
             <div className="transform transition-all duration-300 ease-in-out hover:scale-[1.01]">
               <ChatInput
                 input={input}
